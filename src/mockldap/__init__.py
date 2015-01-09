@@ -1,8 +1,8 @@
 from collections import defaultdict
 
-from ldap.cidict import cidict
-
-from .ldapobject import LDAPObject
+from ldap3.utils import ciDict
+#from ldap.cidict import cidict
+from .ldapobject import LDAPObject  # mockldap3
 from .recording import SeedRequired  # noqa
 
 
@@ -48,7 +48,8 @@ class MockLdap(object):
         if self.ldap_objects is not None:
             raise Exception("You can't add a directory after calling start().")
 
-        self.directories[uri] = cidict(map_keys(lambda s: s.lower(), directory))
+        #self.directories[uri] = cidict(map_keys(lambda s: s.lower(), directory))
+        self.directories[uri] = ciDict.CaseInsensitiveDict()  # mockldap3
 
     def start(self, path='ldap.initialize'):
         """

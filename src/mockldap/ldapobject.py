@@ -9,9 +9,12 @@ except ImportError:
 import hashlib
 import re
 
-import ldap
-from ldap.cidict import cidict
-import ldap.dn
+#import ldap
+import ldap3 # mockldap3
+#from ldap.cidict import cidict
+from ldap3.utils.ciDict import CaseInsensitiveDict
+#import ldap.dn
+from ldap3.utils import dn
 
 from .recording import SeedRequired, RecordableMethods, recorded
 
@@ -45,9 +48,13 @@ class LDAPObject(RecordableMethods):
         *string*: DN of the last successful bind. None if unbound.
     """
     def __init__(self, directory):
-        if not isinstance(directory, ldap.cidict.cidict):
-            from . import map_keys
-            directory = cidict(map_keys(lambda s: s.lower(), directory))
+        #if not isinstance(directory, ldap.cidict.cidict):
+        #    from . import map_keys
+        #    directory = cidict(map_keys(lambda s: s.lower(), directory))
+        # mockldap3
+        if not isinstance(directory, CaseInsensitiveDict):
+            directory = CaseInsensitiveDict(directory)
+        # mockldap3
 
         self.directory = deepcopy(directory)
         self.async_results = []
@@ -56,11 +63,17 @@ class LDAPObject(RecordableMethods):
         self.bound_as = None
 
     def _check_valid_dn(self, dn):
-        try:
-            ldap.dn.str2dn(dn)
-        except ldap.DECODING_ERROR:
-            raise ldap.INVALID_DN_SYNTAX
+        # try:
+        #     ldap.dn.str2dn(dn)
+        # except ldap.DECODING_ERROR:
+        #     raise ldap.INVALID_DN_SYNTAX
 
+        # mockldap3
+        try:
+            dn.parse_dn(dn)
+        except ldap3.LDAPInvalidDnError:
+            raise ldap3.LDAPInvalidDNSyntaxResult
+        # mockldap3
     #
     # Begin LDAP methods
     #
@@ -93,14 +106,16 @@ class LDAPObject(RecordableMethods):
                 success = True
             elif self._compare_s(who, 'userPassword', cred):
                 success = True
-        except ldap.NO_SUCH_OBJECT:
+        #except ldap.NO_SUCH_OBJECT:
+        except ldap3.LDAPNoSuchObjectResult: # mockldap3
             pass
 
         if success:
             self.bound_as = who
             return (97, [])
         else:
-            raise ldap.INVALID_CREDENTIALS('%s:%s' % (who, cred))
+            #raise ldap.INVALID_CREDENTIALS('%s:%s' % (who, cred))
+            raise ldap3.LDAPInvalidCredentialsResult('%s:%s' % (who, cred)) # mockldap3
 
     @recorded
     def search(self, base, scope, filterstr='(objectClass=*)', attrlist=None, attrsonly=0):
@@ -115,7 +130,8 @@ class LDAPObject(RecordableMethods):
     def result(self, msgid, all=1, timeout=None):
         """
         """
-        return ldap.RES_SEARCH_RESULT, self._pop_async_result(msgid)
+        #return ldap.RES_SEARCH_RESULT, self._pop_async_result(msgid)
+        return ldap3.RESULT_SUCCESS, self._pop_async_result(msgid) # mockldap3
 
     @recorded
     def search_s(self, base, scope, filterstr='(objectClass=*)', attrlist=None, attrsonly=0):
@@ -192,7 +208,8 @@ class LDAPObject(RecordableMethods):
         try:
             values = self.directory[dn].get(attr, [])
         except KeyError:
-            raise ldap.NO_SUCH_OBJECT
+            #raise ldap.NO_SUCH_OBJECT
+            raise ldap3.LDAPNoSuchObjectResult # mockldap3
 
         if attr == 'userPassword':
             result = 1 if any(self._compare_password(value, candidate) for candidate in values) else 0
@@ -237,18 +254,24 @@ class LDAPObject(RecordableMethods):
         self._check_valid_dn(base)
 
         if base not in self.directory:
-            raise ldap.NO_SUCH_OBJECT
+            #raise ldap.NO_SUCH_OBJECT
+            raise ldap3.LDAPNoSuchObjectResult # mockldap3
 
         # Find directory entries within the requested scope
-        base_parts = ldap.dn.explode_dn(base.lower())
+        #base_parts = ldap.dn.explode_dn(base.lower())
+        base_parts = dn.to_dn(base.lower()) # mockldap3
         base_len = len(base_parts)
-        dn_parts = dict((dn, ldap.dn.explode_dn(dn)) for dn in self.directory.keys())
+        #dn_parts = dict((dn, ldap.dn.explode_dn(dn)) for dn in self.directory.keys())
+        dn_parts = dict((dn, dn.parse_dn(dn)) for dn in self.directory.keys()) # mockldap3
 
-        if scope == ldap.SCOPE_BASE:
+        #if scope == ldap.SCOPE_BASE:
+        if scope == ldap3.SEARCH_SCOPE_BASE_OBJECT: # mockldap3
             dns = (dn for dn, parts in dn_parts.items() if parts == base_parts)
-        elif scope == ldap.SCOPE_ONELEVEL:
+        #elif scope == ldap.SCOPE_ONELEVEL:
+        elif scope == ldap3.SEARCH_SCOPE_SINGLE_LEVEL: # mockldap3
             dns = (dn for dn, parts in dn_parts.items() if parts[1:] == base_parts)
-        elif scope == ldap.SCOPE_SUBTREE:
+        #elif scope == ldap.SCOPE_SUBTREE:
+        elif scope == ldap3.SEARCH_SCOPE_WHOLE_SUBTREE: # mockldap3
             dns = (dn for dn, parts in dn_parts.items() if parts[-base_len:] == base_parts)
         else:
             raise ValueError(u"Unrecognized scope: {0}".format(scope))
@@ -282,16 +305,19 @@ class LDAPObject(RecordableMethods):
             try:
                 entry = self.directory[dn]
             except KeyError:
-                raise ldap.NO_SUCH_OBJECT
+                #raise ldap.NO_SUCH_OBJECT
+                raise ldap3.LDAPNoSuchObjectResult # mockldap3
 
             if value is None:
                 value = []
             elif type(value) is str:
                 value = [value]
 
-            if op == ldap.MOD_ADD:
+            #if op == ldap.MOD_ADD:
+            if op == ldap3.MODIFY_ADD: # mockldap3
                 if value == []:
-                    raise ldap.PROTOCOL_ERROR
+                    #raise ldap.PROTOCOL_ERROR
+                    raise ldap3.LDAPProtocolErrorResult # mockldap3
 
                 if key not in entry:
                     entry[key] = value
@@ -299,7 +325,8 @@ class LDAPObject(RecordableMethods):
                     for subvalue in value:
                         if subvalue not in entry[key]:
                             entry[key].append(subvalue)
-            elif op == ldap.MOD_DELETE:
+            #elif op == ldap.MOD_DELETE:
+            elif op == ldap3.MODIFY_DELETE: # mockldap3
                 if key not in entry:
                     pass
                 elif value == []:
@@ -308,7 +335,8 @@ class LDAPObject(RecordableMethods):
                     entry[key] = [v for v in entry[key] if v not in value]
                     if entry[key] == []:
                         del entry[key]
-            elif op == ldap.MOD_REPLACE:
+            #elif op == ldap.MOD_REPLACE:
+            elif op == ldap3.MODIFY_REPLACE: # mockldap3
                 if value == []:
                     if key in entry:
                         del entry[key]
@@ -326,7 +354,8 @@ class LDAPObject(RecordableMethods):
             entry[item[0]] = list(item[1])
         try:
             self.directory[dn]
-            raise ldap.ALREADY_EXISTS
+            #raise ldap.ALREADY_EXISTS
+            raise ldap3.LDAPAttributeOrValueExistsResult #mockldap3
         except KeyError:
             self.directory[dn] = entry
             return (105, [], len(self.methods_called()), [])
@@ -340,7 +369,8 @@ class LDAPObject(RecordableMethods):
         try:
             entry = self.directory[dn]
         except KeyError:
-            raise ldap.NO_SUCH_OBJECT
+            #raise ldap.NO_SUCH_OBJECT
+            raise ldap3.LDAPNoSuchObjectResult # mockldap3
 
         if newsuperior:
             superior = newsuperior
@@ -349,7 +379,8 @@ class LDAPObject(RecordableMethods):
 
         newfulldn = '%s,%s' % (newrdn, superior)
         if newfulldn in self.directory:
-            raise ldap.ALREADY_EXISTS
+            #raise ldap.ALREADY_EXISTS
+            raise ldap3.LDAPEntryAlreadyExistsResult # mockldap3
 
         oldattr, oldvalue = dn.split(',')[0].split('=')
         newattr, newvalue = newrdn.split('=')
@@ -376,7 +407,8 @@ class LDAPObject(RecordableMethods):
         try:
             del self.directory[dn]
         except KeyError:
-            raise ldap.NO_SUCH_OBJECT
+            #raise ldap.NO_SUCH_OBJECT
+            raise ldap3.LDAPNoSuchObjectResult # mockldap3
 
         return (107, [])
 
